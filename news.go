@@ -79,6 +79,7 @@ func (t *Arith) Run(data string, result *string) error {
 func LoadCat(usex models.UserSession) string {
 	log.Debugf("loadcat begin")
 	cats := rpch.GetAllNewsCats(usex.UserID, usex.Shop.ID.Hex())
+	log.Debugf("loadcat %v", cats)
 	strrt := "["
 	catinfstr := ""
 	for _, cat := range cats {
