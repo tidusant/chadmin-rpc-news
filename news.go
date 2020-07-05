@@ -28,7 +28,7 @@ const (
 type Arith int
 
 func (t *Arith) Run(data string, result *models.RequestResult) error {
-
+	log.Debugf("request data: %s", data)
 	*result = c3mcommon.ReturnJsonMessage("0", "No action found.", "", "")
 	//parse args
 	args := strings.Split(data, "|")
