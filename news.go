@@ -1,12 +1,12 @@
 package main
 
 import (
-	c3mcommon "github.com/tidusant/chadmin-common"
-	mycrypto "github.com/tidusant/chadmin-crypto"
-	"github.com/tidusant/chadmin-log"
-	rpb "github.com/tidusant/chadmin-repo-builder"
-	rpch "github.com/tidusant/chadmin-repo-cuahang"
-	models "github.com/tidusant/chadmin-repo-models"
+	"github.com/tidusant/c3m-common/c3mcommon"
+	"github.com/tidusant/c3m-common/log"
+	"github.com/tidusant/c3m-common/mycrypto"
+	rpb "github.com/tidusant/chadmin-repo/builder"
+	rpch "github.com/tidusant/chadmin-repo/cuahang"
+	models "github.com/tidusant/chadmin-repo/models"
 	"github.com/tidusant/chadmin-string"
 	//	"c3m/common/inflect"
 	//	"c3m/log"
