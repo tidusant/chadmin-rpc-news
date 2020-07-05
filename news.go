@@ -27,7 +27,7 @@ const (
 
 type Arith int
 
-func (t *Arith) Run(data string, result *models.RequestResult) error {
+func (t *Arith) Run(data string, result *string) error {
 	log.Debugf("request data: %s", data)
 	*result = c3mcommon.ReturnJsonMessage("0", "No action found.", "", "")
 	//parse args
@@ -79,9 +79,9 @@ func (t *Arith) Run(data string, result *models.RequestResult) error {
 	return nil
 }
 
-func LoadCat(usex models.UserSession) models.RequestResult {
+func LoadCat(usex models.UserSession) string {
 	log.Debugf("loadcat begin")
-	cats := rpch.GetAllNewsCats(usex.Shop.ID.Hex())
+	cats := rpch.GetAllNewsCats(usex.UserID, usex.Shop.ID.Hex())
 
 	for i, _ := range cats {
 		cats[i].ShopId = ""
@@ -90,7 +90,7 @@ func LoadCat(usex models.UserSession) models.RequestResult {
 	b, _ := json.Marshal(cats)
 	return c3mcommon.ReturnJsonMessage("1", "", "success", string(b))
 }
-func SaveCat(usex models.UserSession) models.RequestResult {
+func SaveCat(usex models.UserSession) string {
 	var cat models.NewsCat
 	err := json.Unmarshal([]byte(usex.Params), &cat)
 	if !c3mcommon.CheckError("create cat parse json", err) {
@@ -99,7 +99,7 @@ func SaveCat(usex models.UserSession) models.RequestResult {
 	olditem := cat
 	isnewitem := true
 	//get all item
-	items := rpch.GetAllNewsCats(usex.Shop.ID.Hex())
+	items := rpch.GetAllNewsCats(usex.UserID, usex.Shop.ID.Hex())
 	for _, item := range items {
 		if item.ID == cat.ID {
 			isnewitem = false
@@ -110,9 +110,9 @@ func SaveCat(usex models.UserSession) models.RequestResult {
 	//check max cat limited
 	if isnewitem {
 
-		if rpch.GetShopLimitbyKey(usex.Shop.ID.Hex(), "maxnewscat") <= len(items) {
-			return c3mcommon.ReturnJsonMessage("0", "max news category limit reach", "", "")
-		}
+		// if rpch.GetShopLimitbyKey(usex.Shop.ID.Hex(), "maxnewscat") <= len(items) {
+		// 	return c3mcommon.ReturnJsonMessage("0", "max news category limit reach", "", "")
+		// }
 	}
 	//get all slug
 	// slugs := rpch.GetAllSlug(usex.UserID, usex.Shop.ID.Hex())
@@ -131,7 +131,7 @@ func SaveCat(usex models.UserSession) models.RequestResult {
 		newslug.Lang = lang
 		newslug.TemplateCode = usex.Shop.Theme
 
-		if cat.Langs[lang].Title == "" {
+		if cat.Langs[lang].Name == "" {
 			//check if oldprod has value, else delete
 			if olditem.Langs[lang] == nil {
 				delete(cat.Langs, lang)
@@ -142,7 +142,7 @@ func SaveCat(usex models.UserSession) models.RequestResult {
 				} else {
 					//delete old lang if all info is blank
 					newslug.ObjectId = olditem.ID.Hex()
-					rpch.RemoveSlug(cat.Langs[lang].Slug)
+					rpch.RemoveSlug(cat.Langs[lang].Slug, usex.Shop.ID.Hex())
 					delete(cat.Langs, lang)
 				}
 			}
@@ -150,7 +150,7 @@ func SaveCat(usex models.UserSession) models.RequestResult {
 		}
 		//newslug
 
-		newslug.Slug = inflect.Parameterize(cat.Langs[lang].Title)
+		newslug.Slug = inflect.Parameterize(cat.Langs[lang].Name)
 		langslugs[lang] = newslug
 	}
 	//check code duplicate
@@ -490,4 +490,4 @@ func main() {
 	}
 }
 
-//repush
+//repush 1
