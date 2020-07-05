@@ -2,12 +2,14 @@ package main
 
 import (
 	"github.com/tidusant/c3m-common/c3mcommon"
+	"github.com/tidusant/c3m-common/inflect"
 	"github.com/tidusant/c3m-common/log"
-	"github.com/tidusant/c3m-common/mycrypto"
+	"github.com/tidusant/c3m-common/lzjs"
+	"github.com/tidusant/c3m-common/mystring"
 	rpb "github.com/tidusant/chadmin-repo/builder"
 	rpch "github.com/tidusant/chadmin-repo/cuahang"
 	models "github.com/tidusant/chadmin-repo/models"
-	"github.com/tidusant/chadmin-string"
+
 	//	"c3m/common/inflect"
 	//	"c3m/log"
 
@@ -46,7 +48,6 @@ func (t *Arith) Run(data string, result *string) error {
 	if len(args) > 3 {
 		usex.Params = args[3]
 	}
-
 	//check shop permission
 	shop := rpch.GetShopById(usex.UserID, ShopID)
 	if shop.Status == 0 {
@@ -139,7 +140,7 @@ func SaveCat(usex models.UserSession) string {
 			continue
 		}
 		//newslug
-		tb, _ := mycrypto.DecompressFromBase64(cat.Langs[lang].Name)
+		tb, _ := lzjs.DecompressFromBase64(cat.Langs[lang].Name)
 		newslug := inflect.Parameterize(string(tb))
 		cat.Langs[lang].Slug = newslug
 
@@ -371,7 +372,7 @@ func SaveNews(usex models.UserSession) string {
 		}
 		//newslug
 		//newslug
-		tb, _ := mycrypto.DecompressFromBase64(newitem.Langs[lang].Title)
+		tb, _ := lzjs.DecompressFromBase64(newitem.Langs[lang].Title)
 		newslug := inflect.Parameterize(string(tb))
 		newitem.Langs[lang].Slug = newslug
 		isChangeSlug := true
