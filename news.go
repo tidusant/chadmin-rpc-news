@@ -4,11 +4,11 @@ import (
 	"github.com/tidusant/c3m-common/c3mcommon"
 	"github.com/tidusant/c3m-common/inflect"
 	"github.com/tidusant/c3m-common/log"
-
+	"github.com/tidusant/c3m-common/lzjs"
+	"github.com/tidusant/c3m-common/mystring"
+	rpb "github.com/tidusant/chadmin-repo/builder"
 	rpch "github.com/tidusant/chadmin-repo/cuahang"
 	"github.com/tidusant/chadmin-repo/models"
-	"gopkg.in/mgo.v2/bson"
-
 	//	"c3m/common/inflect"
 	//	"c3m/log"
 	"encoding/json"
@@ -28,15 +28,14 @@ const (
 type Arith int
 
 func (t *Arith) Run(data string, result *string) error {
-	log.Debugf("request data: %s", data)
-	*result = c3mcommon.ReturnJsonMessage("0", "No action found.", "", "")
+	log.Debugf("Call RPCprod args:" + data)
+	*result = ""
 	//parse args
 	args := strings.Split(data, "|")
 
 	if len(args) < 3 {
 		return nil
 	}
-
 	var usex models.UserSession
 	usex.Session = args[0]
 	usex.Action = args[2]
@@ -48,9 +47,6 @@ func (t *Arith) Run(data string, result *string) error {
 		usex.Params = args[3]
 	}
 
-	//	if usex.Action == "c" {
-	//		*result = CreateProduct(usex)
-
 	//check shop permission
 	shop := rpch.GetShopById(usex.UserID, ShopID)
 	if shop.Status == 0 {
@@ -58,8 +54,6 @@ func (t *Arith) Run(data string, result *string) error {
 		return nil
 	}
 	usex.Shop = shop
-
-	//	} else
 	if usex.Action == "s" {
 		*result = SaveNews(usex)
 	} else if usex.Action == "l" {
@@ -67,13 +61,15 @@ func (t *Arith) Run(data string, result *string) error {
 	} else if usex.Action == "la" {
 		*result = LoadAllNews(usex)
 	} else if usex.Action == "r" {
-		*result = RemoveNews(usex)
+		*result = Remove(usex)
 	} else if usex.Action == "sc" {
 		*result = SaveCat(usex)
 	} else if usex.Action == "lc" {
 		*result = LoadCat(usex)
 	} else if usex.Action == "rc" {
 		*result = RemoveCat(usex)
+	} else { //default
+		*result = ""
 	}
 
 	return nil
@@ -82,13 +78,23 @@ func (t *Arith) Run(data string, result *string) error {
 func LoadCat(usex models.UserSession) string {
 	log.Debugf("loadcat begin")
 	cats := rpch.GetAllNewsCats(usex.UserID, usex.Shop.ID.Hex())
-
-	for i, _ := range cats {
-		cats[i].ShopId = ""
-		cats[i].UserId = ""
+	strrt := "["
+	catinfstr := ""
+	for _, cat := range cats {
+		catlangs := ""
+		for lang, catinf := range cat.Langs {
+			catlangs += "\"" + lang + "\":{\"Name\":\"" + catinf.Name + "\",\"Slug\":\"" + catinf.Slug + "\"},"
+		}
+		catlangs = catlangs[:len(catlangs)-1]
+		catinfstr += "{\"Code\":\"" + cat.Code + "\",\"Langs\":{" + catlangs + "}},"
 	}
-	b, _ := json.Marshal(cats)
-	return c3mcommon.ReturnJsonMessage("1", "", "success", string(b))
+	if catinfstr == "" {
+		strrt += "{}]"
+	} else {
+		strrt += catinfstr[:len(catinfstr)-1] + "]"
+	}
+	log.Debugf("loadcat %s", strrt)
+	return c3mcommon.ReturnJsonMessage("1", "", "success", strrt)
 }
 func SaveCat(usex models.UserSession) string {
 	var cat models.NewsCat
@@ -97,210 +103,230 @@ func SaveCat(usex models.UserSession) string {
 		return c3mcommon.ReturnJsonMessage("0", "create catalog fail", "", "")
 	}
 	olditem := cat
-	isnewitem := true
-	//get all item
-	items := rpch.GetAllNewsCats(usex.UserID, usex.Shop.ID.Hex())
-	for _, item := range items {
-		if item.ID == cat.ID {
-			isnewitem = false
-			olditem = item
-			break
+	newcat := false
+	if cat.Code == "" {
+		newcat = true
+	}
+
+	//get all cats
+	cats := rpch.GetAllNewsCats(usex.UserID, usex.Shop.ID.Hex())
+	//check max cat limited
+	if newcat {
+		shop := rpch.GetShopById(usex.UserID, usex.Shop.ID.Hex())
+		if shop.Config.MaxCat <= len(cats) {
+			return c3mcommon.ReturnJsonMessage("3", "error", "max limit reach", "")
 		}
 	}
-	//check max cat limited
-	if isnewitem {
-
-		// if rpch.GetShopLimitbyKey(usex.Shop.ID.Hex(), "maxnewscat") <= len(items) {
-		// 	return c3mcommon.ReturnJsonMessage("0", "max news category limit reach", "", "")
-		// }
-	}
 	//get all slug
-	// slugs := rpch.GetAllSlug(usex.UserID, usex.Shop.ID.Hex())
-	// mapslugs := make(map[string]string)
-	// for i := 0; i < len(slugs); i++ {
-	// 	mapslugs[slugs[i]] = slugs[i]
-	// }
+	slugs := rpch.GetAllSlug(usex.UserID, usex.Shop.ID.Hex())
+	mapslugs := make(map[string]string)
+	for i := 0; i < len(slugs); i++ {
+		mapslugs[slugs[i]] = slugs[i]
+	}
+	//get array of code
+	catcodes := make(map[string]string)
+	//get old item
+	for _, c := range cats {
+		catcodes[c.Code] = c.Code
+		if !newcat && c.Code == cat.Code {
+			olditem = c
+		}
+	}
 
-	//slug
-	langslugs := make(map[string]models.Slug)
-	var langlinks []models.LangLink
 	for lang, _ := range cat.Langs {
-		var newslug models.Slug
-		newslug.ShopId = usex.Shop.ID.Hex()
-		newslug.Object = "newscat"
-		newslug.Lang = lang
-		newslug.TemplateCode = usex.Shop.Theme
-
 		if cat.Langs[lang].Name == "" {
-			//check if oldprod has value, else delete
-			if olditem.Langs[lang] == nil {
-				delete(cat.Langs, lang)
-			} else {
-				//not update for null lang
-				if cat.Langs[lang].Description != "" {
-					cat.Langs[lang] = olditem.Langs[lang]
-				} else {
-					//delete old lang if all info is blank
-					newslug.ObjectId = olditem.ID.Hex()
-					rpch.RemoveSlug(cat.Langs[lang].Slug, usex.Shop.ID.Hex())
-					delete(cat.Langs, lang)
-				}
-			}
+			delete(cat.Langs, lang)
 			continue
 		}
 		//newslug
+		tb, _ := lzjs.DecompressFromBase64(cat.Langs[lang].Name)
+		newslug := inflect.Parameterize(string(tb))
+		cat.Langs[lang].Slug = newslug
 
-		newslug.Slug = inflect.Parameterize(cat.Langs[lang].Name)
-		langslugs[lang] = newslug
+		isChangeSlug := true
+		if !newcat {
+			if olditem.Langs[lang].Slug == newslug {
+				isChangeSlug = false
+			}
+		}
+
+		if isChangeSlug {
+			//check slug duplicate
+			i := 1
+			for {
+				if _, ok := mapslugs[cat.Langs[lang].Slug]; ok {
+					cat.Langs[lang].Slug = newslug + strconv.Itoa(i)
+					i++
+				} else {
+					mapslugs[cat.Langs[lang].Slug] = cat.Langs[lang].Slug
+					break
+				}
+			}
+			//remove oldslug
+			if !newcat {
+				rpch.RemoveSlug(olditem.Langs[lang].Slug, usex.Shop.ID.Hex())
+			}
+			rpch.CreateSlug(cat.Langs[lang].Slug, usex.Shop.ID.Hex(), "prodcats")
+		}
 	}
-	//check code duplicate
-	if isnewitem {
 
+	//check code duplicate
+	if newcat {
+		//insert new
+		newcode := ""
+		for {
+			newcode = mystring.RandString(3)
+			if _, ok := catcodes[newcode]; !ok {
+				break
+			}
+		}
+		cat.Code = newcode
 		cat.ShopId = usex.Shop.ID.Hex()
 		cat.UserId = usex.UserID
 		cat.Created = time.Now().UTC().Add(time.Hour + 7)
-		cat.ID = bson.NewObjectId()
 	} else {
-		//update field here:
+		//update
 		olditem.Langs = cat.Langs
-		olditem.Publish = cat.Publish
-		olditem.Feature = cat.Feature
-		olditem.Home = cat.Home
-		olditem.Avatar = cat.Avatar
-
 		cat = olditem
 	}
-	//update langlink
-	for lang, slug := range langslugs {
-		slug.ObjectId = olditem.ID.Hex()
-		olditem.Langs[lang].Slug = rpch.SaveSlugNoBuild(slug)
-		slug.Slug = olditem.Langs[lang].Slug
-		langlinks = append(langlinks, models.LangLink{Href: olditem.Langs[lang].Slug + "/", Code: lang, Name: c3mcommon.GetLangnameByCode(lang)})
-		langslugs[lang] = slug
-
-	}
-	cat.LangLinks = langlinks
-
-	strrt := rpch.SaveNewsCat(&cat)
-	if strrt == "" {
+	strrt := rpch.SaveNewsCat(cat)
+	if strrt == "0" {
 		return c3mcommon.ReturnJsonMessage("0", "error", "error", "")
 	}
-
-	//rebuild
-	b, err := json.Marshal(cat)
-	//create build
-	strrt = string(b)
-	errstr := rpch.CreateBuild("newscat", cat.ID.Hex(), strrt, usex)
-	if errstr != "" {
-		return c3mcommon.ReturnJsonMessage("0", errstr, "build error", "")
-	}
-	errstr = rpch.CreateCommonDataBuild(usex)
-	if errstr != "" {
-		return c3mcommon.ReturnJsonMessage("0", errstr, "build error", "")
-	}
-	//rpb.CreateBuild(build)
-
+	log.Debugf("saveprod %s", strrt)
 	//build home
-	// var bs models.BuildScript
-	// shop := rpch.GetShopById(usex.UserID, usex.Shop.ID.Hex())
-	// bs.ShopID = usex.Shop.ID.Hex()
-	// bs.TemplateCode = shop.Theme
-	// bs.Domain = shop.Domain
-	// bs.ObjectID = "home"
-	// rpb.CreateBuild(bs)
+	var bs models.BuildScript
+	shop := rpch.GetShopById(usex.UserID, usex.Shop.ID.Hex())
+	bs.ShopID = usex.Shop.ID.Hex()
+	bs.TemplateCode = shop.Theme
+	bs.Domain = shop.Domain
+	bs.ObjectID = "home"
+	rpb.CreateBuild(bs)
 
-	// //build cat
-	// bs.Collection = "newscats"
-	// bs.ObjectID = cat.Code
-	// rpb.CreateBuild(bs)
+	//build cat
+	bs.Collection = "newscats"
+	bs.ObjectID = cat.Code
+	rpb.CreateBuild(bs)
 
 	return c3mcommon.ReturnJsonMessage("1", "", "success", strrt)
 }
-func RemoveCat(usex models.UserSession) models.RequestResult {
+func RemoveCat(usex models.UserSession) string {
 
-	catid := usex.Params
+	args := strings.Split(usex.Params, ",")
+	if len(args) < 1 {
+		return c3mcommon.ReturnJsonMessage("0", "error submit fields", "", "")
+	}
+	log.Debugf("remove cat %s", args)
+	code := args[0]
+	if code == "unc" {
+		return c3mcommon.ReturnJsonMessage("0", "error cannot delete cat", "", "")
+	}
 	//check product
 
-	news := rpch.GetNewsByCatId(usex.UserID, usex.Shop.ID.Hex(), catid)
-	subcats := rpch.GetSubCatsByID(usex.Shop.ID.Hex(), catid)
-	if len(news) > 0 || len(subcats) > 0 {
-		return c3mcommon.ReturnJsonMessage("0", "Catalog not empty, Please remove all subcategory and news.", "", "")
+	news := rpch.GetNewsByCatId(usex.UserID, usex.Shop.ID.Hex(), code)
+
+	if len(news) > 0 {
+		return c3mcommon.ReturnJsonMessage("2", "Catalog not empty", "", "")
 	}
 
-	cat := rpch.GetNewsCatByID(usex.Shop.ID.Hex(), catid)
+	cat := rpch.GetNewsCatByCode(usex.UserID, usex.Shop.ID.Hex(), code)
 	for lang, _ := range cat.Langs {
 		//remove slug
-		var newslug models.Slug
-		newslug.ShopId = usex.Shop.ID.Hex()
-		newslug.Object = "newscat"
-		newslug.Lang = lang
-
-		newslug.ObjectId = cat.ID.Hex()
-
-		rpch.RemoveSlug(cat.Langs[lang].Slug)
+		rpch.RemoveSlug(cat.Langs[lang].Slug, usex.Shop.ID.Hex())
 		delete(cat.Langs, lang)
-
 	}
-	rpch.SaveNewsCat(&cat)
+	rpch.SaveNewsCat(cat)
+
+	//build home
+	var bs models.BuildScript
+	shop := rpch.GetShopById(usex.UserID, usex.Shop.ID.Hex())
+	bs.ShopID = usex.Shop.ID.Hex()
+	bs.TemplateCode = shop.Theme
+	bs.Domain = shop.Domain
+	bs.ObjectID = "home"
+	rpb.CreateBuild(bs)
+
+	//build cat
+	bs.Collection = "rmnewscats"
+	bs.ObjectID = cat.Code
+	rpb.CreateBuild(bs)
 
 	return c3mcommon.ReturnJsonMessage("1", "", "success", "")
 
 }
 
-func LoadNews(usex models.UserSession) models.RequestResult {
+func Remove(usex models.UserSession) string {
+	log.Debugf("remove  %s", usex.Params)
+	args := strings.Split(usex.Params, ",")
+	if len(args) < 2 {
+		return c3mcommon.ReturnJsonMessage("0", "error submit fields", "", "")
+	}
+	log.Debugf("save prod %s", args)
+	code := args[0]
+	lang := args[1]
+	itemremove := rpch.GetNewsByCode(usex.UserID, usex.Shop.ID.Hex(), code)
+	if itemremove.Langs[lang] != nil {
+		//remove slug
+		rpch.RemoveSlug(itemremove.Langs[lang].Slug, usex.Shop.ID.Hex())
+		delete(itemremove.Langs, lang)
+		rpch.SaveNews(itemremove)
+	}
+
+	//build home
+	var bs models.BuildScript
+	shop := rpch.GetShopById(usex.UserID, usex.Shop.ID.Hex())
+	bs.ShopID = usex.Shop.ID.Hex()
+	bs.TemplateCode = shop.Theme
+	bs.Domain = shop.Domain
+	bs.ObjectID = "home"
+	rpb.CreateBuild(bs)
+
+	//build cat
+	bs.Collection = "news"
+	bs.ObjectID = itemremove.Code
+	rpb.CreateBuild(bs)
+	return c3mcommon.ReturnJsonMessage("1", "", "success", "")
+
+}
+func LoadNews(usex models.UserSession) string {
 	args := strings.Split(usex.Params, ",")
 	if len(args) < 1 {
 		return c3mcommon.ReturnJsonMessage("0", "error submit fields", "", "")
 	}
 
-	newsid := args[0]
-	item := rpch.GetNewsByID(usex.UserID, usex.Shop.ID.Hex(), newsid)
-	b, _ := json.Marshal(item)
-
-	return c3mcommon.ReturnJsonMessage("1", "", "", string(b))
+	code := args[0]
+	item := rpch.GetNewsByCode(usex.UserID, usex.Shop.ID.Hex(), code)
+	info, _ := json.Marshal(item.Langs)
+	strrt := "{\"Code\":\"" + item.Code + "\",\"CatID\":\"" + item.CatID + "\",\"Langs\":" + string(info) + "}"
+	log.Debugf("load news %s", strrt)
+	return strrt
 
 }
-func LoadAllNews(usex models.UserSession) models.RequestResult {
+func LoadAllNews(usex models.UserSession) string {
 
-	items := rpch.GetAllNews(usex.Shop.ID.Hex())
+	items := rpch.GetAllNews(usex.UserID, usex.Shop.ID.Hex())
 	if len(items) == 0 {
-		return c3mcommon.ReturnJsonMessage("0", "no news found", "", "")
+		return c3mcommon.ReturnJsonMessage("2", "", "no news found", "")
 	}
-	//get all cat
-	cats := rpch.GetAllNewsCats(usex.Shop.ID.Hex())
-	catmap := make(map[string]models.NewsCat)
-	for _, item := range cats {
-		catmap[item.ID.Hex()] = item
-	}
-	for i, item := range items {
-		for _, lang := range usex.Shop.Config.Langs {
-			//check news lang exist
-			if _, ok := item.Langs[lang]; ok {
-				if len(item.CatIDs) > 0 {
-					var cat []string
-					for _, catid := range item.CatIDs {
-						if catmap[catid].ID.Hex() != "" {
-							//check cat lang exist
-							if val, ok := catmap[catid].Langs[lang]; ok {
-								cat = append(cat, val.Title)
-							}
-						}
-					}
-					items[i].Langs[lang].Catname = strings.Join(cat, "<br />")
 
-				} else {
-					items[i].Langs[lang].Catname = "Root"
-				}
-			}
+	strrt := "["
+
+	for _, item := range items {
+		strlang := "{"
+		for lang, langinfo := range item.Langs {
+			langinfo.Content = ""
+			info, _ := json.Marshal(langinfo)
+			strlang += "\"" + lang + "\":" + string(info) + ","
 		}
-		items[i].ShopID = ""
-		items[i].UserID = ""
+		strlang = strlang[:len(strlang)-1] + "}"
+		strrt += "{\"Code\":\"" + item.Code + "\",\"CatID\":\"" + item.CatID + "\",\"Langs\":" + strlang + "},"
 	}
-	b, _ := json.Marshal(items)
-	return c3mcommon.ReturnJsonMessage("1", "", "success", string(b))
+	strrt = strrt[:len(strrt)-1] + "]"
+	log.Debugf("loadprod %s", strrt)
+	return c3mcommon.ReturnJsonMessage("1", "", "success", strrt)
 
 }
-func SaveNews(usex models.UserSession) models.RequestResult {
+func SaveNews(usex models.UserSession) string {
 	var newitem models.News
 	log.Debugf("Unmarshal %s", usex.Params)
 	err := json.Unmarshal([]byte(usex.Params), &newitem)
@@ -308,149 +334,115 @@ func SaveNews(usex models.UserSession) models.RequestResult {
 		return c3mcommon.ReturnJsonMessage("0", "json parse fail", "", "")
 	}
 
-	isnewitem := true
-	var olditem models.News
-	//get all item
-	items := rpch.GetAllNews(usex.Shop.ID.Hex())
-	for _, item := range items {
-		if item.ID == newitem.ID {
-			isnewitem = false
-			olditem = item
-			break
-		}
+	isnewitem := false
+	if newitem.Code == "" {
+		isnewitem = true
 	}
+	//get all item
+	items := rpch.GetAllNews(usex.UserID, usex.Shop.ID.Hex())
+	var olditem models.News
 	//check max cat limited
 	if isnewitem {
-		if rpch.GetShopLimitbyKey(usex.Shop.ID.Hex(), "maxnews") <= len(items) {
-			return c3mcommon.ReturnJsonMessage("3", "error", "max news limit reach", "")
+		shop := rpch.GetShopById(usex.UserID, usex.Shop.ID.Hex())
+		if shop.Config.MaxNews <= len(items) {
+			return c3mcommon.ReturnJsonMessage("3", "error", "max limit reach", "")
 		}
 	}
 
 	//get all slug
-	// slugs := rpch.GetAllSlug(usex.UserID, usex.Shop.ID.Hex())
-	// mapslugs := make(map[string]string)
-	// for i := 0; i < len(slugs); i++ {
-	// 	mapslugs[slugs[i]] = slugs[i]
-	// }
+	slugs := rpch.GetAllSlug(usex.UserID, usex.Shop.ID.Hex())
+	mapslugs := make(map[string]string)
+	for i := 0; i < len(slugs); i++ {
+		mapslugs[slugs[i]] = slugs[i]
+	}
 	//get array of album slug
-	// allcodes := map[string]string{}
-	// for _, item := range items {
-	// 	allcodes[item.Code] = item.Code
-	// 	if !isnewitem && item.Code == newitem.Code {
-	// 		olditem = item
-	// 	}
-	// }
+	allcodes := map[string]string{}
+	for _, item := range items {
+		allcodes[item.Code] = item.Code
+		if !isnewitem && item.Code == newitem.Code {
+			olditem = item
+		}
+	}
 
-	//slug
-	langslugs := make(map[string]models.Slug)
-	var langlinks []models.LangLink
 	for lang, _ := range newitem.Langs {
-		var newslug models.Slug
-		newslug.ShopId = usex.Shop.ID.Hex()
-		newslug.Object = "news"
-		newslug.Lang = lang
-
 		if newitem.Langs[lang].Title == "" {
 			delete(newitem.Langs, lang)
 			continue
 		}
-		if newitem.Langs[lang].Title == "" {
-			//check if oldprod has value, else delete
-			if olditem.Langs[lang] == nil {
-				delete(newitem.Langs, lang)
-			} else {
-				//not update for null lang
-				if newitem.Langs[lang].Description != "" {
-					newitem.Langs[lang] = olditem.Langs[lang]
+		//newslug
+		//newslug
+		tb, _ := lzjs.DecompressFromBase64(newitem.Langs[lang].Title)
+		newslug := inflect.Parameterize(string(tb))
+		newitem.Langs[lang].Slug = newslug
+		isChangeSlug := true
+		if !isnewitem {
+			if olditem.Langs[lang].Slug == newslug {
+				isChangeSlug = false
+			}
+		}
+
+		if isChangeSlug {
+			//check slug duplicate
+			i := 1
+			for {
+				if _, ok := mapslugs[newitem.Langs[lang].Slug]; ok {
+					newitem.Langs[lang].Slug = newslug + strconv.Itoa(i)
+					i++
 				} else {
-					//delete old lang if all info is blank
-					newslug.ObjectId = olditem.ID.Hex()
-					rpch.RemoveSlug(newitem.Langs[lang].Slug)
-					delete(newitem.Langs, lang)
+					mapslugs[newitem.Langs[lang].Slug] = newitem.Langs[lang].Slug
+					break
 				}
 			}
-			continue
+			//remove oldslug
+			if !isnewitem {
+				rpch.RemoveSlug(olditem.Langs[lang].Slug, usex.Shop.ID.Hex())
+			}
+			rpch.CreateSlug(newitem.Langs[lang].Slug, usex.Shop.ID.Hex(), "prodcats")
 		}
-		//newslug
-		//newslug
-		newslug.Slug = inflect.Parameterize(newitem.Langs[lang].Title)
-
-		langslugs[lang] = newslug
-
 	}
 
 	//check code duplicate
 	if isnewitem {
 		//insert new
-		// newcode := ""
-		// for {
-		// 	newcode = mystring.RandString(3)
-		// 	if _, ok := allcodes[newcode]; !ok {
-		// 		break
-		// 	}
-		// }
-		// newitem.Code = newcode
+		newcode := ""
+		for {
+			newcode = mystring.RandString(3)
+			if _, ok := allcodes[newcode]; !ok {
+				break
+			}
+		}
+		newitem.Code = newcode
 		newitem.ShopID = usex.Shop.ID.Hex()
 		newitem.UserID = usex.UserID
-		newitem.Created = time.Now().UTC()
-		newitem.ID = bson.NewObjectId()
+		newitem.Created = time.Now().UTC().Add(time.Hour + 7)
 	} else {
-		//update field here:
+		//update
 		olditem.Langs = newitem.Langs
-		olditem.CatIDs = newitem.CatIDs
-		olditem.Publish = newitem.Publish
-		olditem.Feature = newitem.Feature
-		olditem.Home = newitem.Home
-		olditem.Avatar = newitem.Avatar
-		olditem.Modified = time.Now().UTC()
+		olditem.CatID = newitem.CatID
 		newitem = olditem
 	}
-
-	//update langlinks
-	for lang, slug := range langslugs {
-		slug.ObjectId = newitem.ID.Hex()
-
-		newitem.Langs[lang].Slug = rpch.SaveSlugNoBuild(slug)
-		slug.Slug = newitem.Langs[lang].Slug
-		langlinks = append(langlinks, models.LangLink{Href: newitem.Langs[lang].Slug + "/", Code: lang, Name: c3mcommon.GetLangnameByCode(lang)})
-		langslugs[lang] = slug
-
+	if newitem.CatID == "" {
+		newitem.CatID = "unc"
 	}
-	newitem.LangLinks = langlinks
-	strrt := rpch.SaveNews(&newitem)
+	strrt := rpch.SaveNews(newitem)
 	if strrt == "0" {
 		return c3mcommon.ReturnJsonMessage("0", "error", "error", "")
 	}
-	log.Debugf("savenews %s", strrt)
-	//rebuild page
-	newitem.ShopID = ""
-	newitem.UserID = ""
-	b, err := json.Marshal(newitem)
-	strrt = string(b)
-	if newitem.Publish || newitem.Home || newitem.Feature {
-		rpch.CreateBuild("news", newitem.ID.Hex(), strrt, usex)
-	}
+	log.Debugf("saveprod %s", strrt)
+	//build home
+	var bs models.BuildScript
+	shop := rpch.GetShopById(usex.UserID, usex.Shop.ID.Hex())
+	bs.ShopID = usex.Shop.ID.Hex()
+	bs.TemplateCode = shop.Theme
+	bs.Domain = shop.Domain
+	bs.ObjectID = "home"
+	rpb.CreateBuild(bs)
+
+	//build cat
+	bs.Collection = "news"
+	bs.ObjectID = newitem.Code
+	rpb.CreateBuild(bs)
 	return c3mcommon.ReturnJsonMessage("1", "", "success", strrt)
-}
-
-func RemoveNews(usex models.UserSession) models.RequestResult {
-
-	newsids := strings.Split(usex.Params, ",")
-	for _, newsid := range newsids {
-		itemremove := rpch.GetNewsByID(usex.UserID, usex.Shop.ID.Hex(), newsid)
-		//remove slug
-		for _, lang := range itemremove.Langs {
-			rpch.RemoveSlug(lang.Slug)
-		}
-		rpch.RemoveNews(itemremove)
-		b, _ := json.Marshal(itemremove)
-
-		if itemremove.Publish || itemremove.Home || itemremove.Feature {
-			rpch.CreateBuild("remove", itemremove.ID.Hex(), string(b), usex)
-		}
-	}
-	return c3mcommon.ReturnJsonMessage("1", "", "success", "")
-
 }
 
 func main() {
@@ -489,5 +481,3 @@ func main() {
 		go rpc.ServeConn(conn)
 	}
 }
-
-//repush 3
